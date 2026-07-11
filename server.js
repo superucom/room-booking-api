@@ -115,6 +115,17 @@ app.delete('/api/bookings/:id', async (req, res) => {
     }
 });
 
+app.post('/api/admin-login', (req, res) => {
+    const { username, password } = req.body;
+
+    // 💡 สามารถแก้ไข Username และ Password ที่ต้องการให้แอดมินใช้กรอกตรงนี้ได้เลยครับ
+    if (username === 'Super' && password === 'teamb123') {
+        res.json({ success: true, message: 'ยืนยันสิทธิ์แอดมินสำเร็จ' });
+    } else {
+        res.status(401).json({ success: false, error: 'ชื่อผู้ใช้งาน หรือ รหัสผ่านแอดมินไม่ถูกต้อง!' });
+    }
+});
+
 // เปิดพอร์ตทำงานที่เลข 3000
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
