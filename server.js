@@ -116,7 +116,7 @@ app.delete('/api/bookings/:id', async (req, res) => {
 });
 
 // เปิดพอร์ตทำงานที่เลข 3000
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 Server กำลังรันที่พอร์ต ${PORT}`);
+    console.log(` Server กำลังออนไลน์บนคลาวด์ที่พอร์ต ${PORT}`);
 });
