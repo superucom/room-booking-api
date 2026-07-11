@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 
 // ⚠️ เชื่อมต่อกับระบบฐานข้อมูลระบบคลาวด์ Neon.tech ของคุณ
-const DATABASE_URL = "postgresql://neondb_owner:npg_HuhbzxCdT8v1@ep-jolly-pond-aouhpqco-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+const DATABASE_URL = process.env.DATABASE_URL;
 
 const db = new Pool({
     connectionString: DATABASE_URL,
