@@ -15,22 +15,31 @@ const db = new Pool({
     connectionString: DATABASE_URL,
     ssl: { rejectUnauthorized: false }
 });
-
 // ----------------------------------------------------------------
-// [API 1] สำหรับหน้าแรก (index.html) - เช็กห้องว่างตามวันและเวลา
+// [API 1] สำหรับหน้าแรก (index.html) - เช็กห้องว่างตามวันและเวลา (และบล็อกคนติดแบล็กลิสต์)
 // ----------------------------------------------------------------
 app.get('/api/available-rooms', async (req, res) => {
-    const { date, slot } = req.query;
+    //  เพิ่มการรับ emp_name จากหน้าบ้าน
+    const { date, slot, emp_name } = req.query;
     if (!date || !slot) {
         return res.status(400).json({ error: 'กรุณาระบุข้อมูลวันที่และช่วงเวลาให้ครบถ้วน' });
     }
     try {
+        //  ถ้าส่งชื่อมา ให้เช็กแบล็กลิสต์ก่อน
+        if (emp_name) {
+            const blacklistCheck = await db.query('SELECT 1 FROM blacklist WHERE emp_name = $1', [emp_name.trim()]);
+            // 🚨 ถ้าติดแบล็กลิสต์ ส่งกล่องว่างเปล่ากลับไปทันที (จะทำให้หน้าบ้านขึ้นว่า ห้องเต็มอดนอน)
+            if (blacklistCheck.rowCount > 0) {
+                return res.json({ availableRooms: [] });
+            }
+        }
+
         const queryText = `
-      SELECT room_id, room_name FROM rooms 
-      WHERE room_id NOT IN (
-        SELECT room_id FROM bookings WHERE booking_date = $1 AND time_slot = $2
-      ) ORDER BY room_id ASC
-    `;
+          SELECT room_id, room_name FROM rooms 
+          WHERE room_id NOT IN (
+            SELECT room_id FROM bookings WHERE booking_date = $1 AND time_slot = $2
+          ) ORDER BY room_id ASC
+        `;
         const result = await db.query(queryText, [date, slot]);
         res.json({ availableRooms: result.rows });
     } catch (err) {
@@ -40,14 +49,20 @@ app.get('/api/available-rooms', async (req, res) => {
 });
 
 // ----------------------------------------------------------------
-// [API 2] สำหรับหน้าแรก (index.html) - บันทึกการจองลงฐานข้อมูล
+// [API 2] สำหรับหน้าแรก (index.html) - บันทึกการจองลงฐานข้อมูล (และบล็อกคนติดแบล็กลิสต์)
 // ----------------------------------------------------------------
 app.post('/api/book', async (req, res) => {
-    const { emp_id, room_id, date, slot } = req.body;
+    const { emp_id, room_id, date, slot } = req.body; // emp_id ในบอดี้คือ "ชื่อพนักงาน" ที่พิมพ์เข้ามา
     if (!emp_id || !room_id || !date || !slot) {
         return res.status(400).json({ error: 'กรุณากรอกข้อมูลพนักงานและเลือกห้องพักให้ครบถ้วน' });
     }
     try {
+        //  เพิ่มการเช็กแบล็กลิสต์เพื่อความชัวร์ ป้องกันการสุ่มยิง API จองตรง
+        const blacklistCheck = await db.query('SELECT 1 FROM blacklist WHERE emp_name = $1', [emp_id.trim()]);
+        if (blacklistCheck.rowCount > 0) {
+            return res.status(403).json({ error: 'ชื่อพนักงานนี้ถูกจำกัดสิทธิ์การใช้งานระบบ (Blacklisted)' });
+        }
+
         // ตรวจสอบว่าห้องพักนั้นถูกผู้อื่นจองไปแล้วในวันเวลาเดียวกันหรือไม่
         const checkRoom = await db.query(
             'SELECT booking_id FROM bookings WHERE booking_date = $1 AND time_slot = $2 AND room_id = $3',
