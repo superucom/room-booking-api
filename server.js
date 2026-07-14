@@ -80,18 +80,51 @@ app.post('/api/book', async (req, res) => {
 });
 
 // ----------------------------------------------------------------
-// [API 3] สำหรับแอดมิน (admin.html) - เรียกดูประวัติการจองทั้งหมด
-// ----------------------------------------------------------------
+// // [API 3] สำหรับแอดมิน (admin.html) และพนักงาน (index.html) - เรียกดูประวัติการจองทั้งหมด
+// // -------------------------------------------------------------
 app.get('/api/bookings', async (req, res) => {
+    // 1. รับค่าชื่อพนักงานที่ส่งมาจากหน้าบ้าน (ถ้ามี)
+    const { emp_name } = req.query;
+
     try {
+        // 2. ตรวจสอบว่าพนักงานคนนี้ติดแบล็กลิสต์หรือไม่ (ตรวจสอบเฉพาะเมื่อมีการส่งชื่อมา)
+        if (emp_name) {
+            const blacklistCheck = await db.query('SELECT 1 FROM blacklist WHERE emp_name = $1', [emp_name.trim()]);
+
+            // 🚨 ตรวจเจอว่าชื่อนี้ติดแบล็กลิสต์! ส่งตารางจำลอง "ห้องเต็ม" กลับไปหลอกทันที
+            if (blacklistCheck.rowCount > 0) {
+                const fakeFullBookings = [];
+                const rooms = ['ห้องพักเบรค 1', 'ห้องพักเบรค 2', 'ห้องพักเบรค 3', 'ห้องพักเบรค 4', 'ห้องพักเบรค 5', 'ห้องพักเบรค 6'];
+                const slots = ['1', '3', '5', '6'];
+
+                rooms.forEach(room => {
+                    slots.forEach(slot => {
+                        fakeFullBookings.push({
+                            booking_id: 999999, // เลขสมมติ
+                            emp_id: 'เต็ม',
+                            emp_name: 'เต็ม',
+                            room_name: room,
+                            booking_date: new Date().toISOString().split('T')[0], // วันที่ปัจจุบัน
+                            time_slot: slot
+                        });
+                    });
+                });
+
+                return res.json(fakeFullBookings); // ส่งตารางหลอกกลับไปและจบการทำงาน
+            }
+        }
+
+        // 🟢 3. หากเป็นพนักงานปกติ หรือหน้าแอดมินดึงข้อมูล (ไม่มี emp_name แนบมา) ให้ดึงข้อมูลจริงตามปกติ
         const queryText = `
-      SELECT b.booking_id, b.emp_id, b.room_id, r.room_name, b.booking_date, b.time_slot
-      FROM bookings b
-      LEFT JOIN rooms r ON b.room_id = r.room_id
-      ORDER BY b.booking_date DESC, b.time_slot DESC, b.booking_id DESC
-    `;
+            SELECT b.booking_id, b.emp_id, b.room_id, r.room_name, b.booking_date, b.time_slot
+            FROM bookings b
+            LEFT JOIN rooms r ON b.room_id = r.room_id
+            ORDER BY b.booking_date DESC, b.time_slot DESC, b.booking_id DESC
+        `;
+
         const result = await db.query(queryText);
         res.json(result.rows);
+
     } catch (err) {
         console.error('Error fetching bookings:', err);
         res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลคิวการจองพักเบรคได้' });
@@ -123,6 +156,51 @@ app.post('/api/admin-login', (req, res) => {
         res.json({ success: true, message: 'ยืนยันสิทธิ์แอดมินสำเร็จ' });
     } else {
         res.status(401).json({ success: false, error: 'ชื่อผู้ใช้งาน หรือ รหัสผ่านแอดมินไม่ถูกต้อง!' });
+    }
+});
+
+// ==========================================
+// 🛡️ API สำหรับระบบแบล็กลิสต์ (ชื่อพนักงาน)
+// ==========================================
+
+// 1. GET: ดึงรายชื่อแบล็กลิสต์ทั้งหมดไปแสดงบนตาราง
+app.get('/api/blacklist', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM blacklist ORDER BY created_at DESC');
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลแบล็กลิสต์' });
+    }
+});
+
+// 2. POST: บันทึกชื่อพนักงานเข้าแบล็กลิสต์
+app.post('/api/blacklist', async (req, res) => {
+    const { emp_name, reason } = req.body;
+    if (!emp_name) return res.status(400).json({ error: 'กรุณาระบุชื่อพนักงาน' });
+
+    try {
+        // ใช้ ON CONFLICT เพื่อว่าถ้าใส่ชื่อซ้ำ จะเป็นการอัปเดตเหตุผลแทน
+        await pool.query(
+            'INSERT INTO blacklist (emp_name, reason) VALUES ($1, $2) ON CONFLICT (emp_name) DO UPDATE SET reason = $2',
+            [emp_name.trim(), reason || '']
+        );
+        res.json({ success: true, message: 'บันทึกรายชื่อแบล็กลิสต์เรียบร้อยแล้ว' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกแบล็กลิสต์' });
+    }
+});
+
+// 3. DELETE: ลบชื่อพนักงานออกจากแบล็กลิสต์ (ปลดบล็อก)
+app.delete('/api/blacklist/:emp_name', async (req, res) => {
+    const { emp_name } = req.params;
+    try {
+        await pool.query('DELETE FROM blacklist WHERE emp_name = $1', [decodeURIComponent(emp_name).trim()]);
+        res.json({ success: true, message: 'ลบรายชื่อออกจากแบล็กลิสต์แล้ว' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบแบล็กลิสต์' });
     }
 });
 
