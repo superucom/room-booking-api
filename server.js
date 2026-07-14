@@ -166,10 +166,11 @@ app.post('/api/admin-login', (req, res) => {
 // 1. GET: ดึงรายชื่อแบล็กลิสต์ทั้งหมดไปแสดงบนตาราง
 app.get('/api/blacklist', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM blacklist ORDER BY created_at DESC');
+        //  แก้ไขจาก pool.query เป็น db.query
+        const result = await db.query('SELECT * FROM blacklist ORDER BY created_at DESC');
         res.json(result.rows);
     } catch (err) {
-        console.error(err);
+        console.error('Error fetching blacklist:', err);
         res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลแบล็กลิสต์' });
     }
 });
@@ -180,14 +181,14 @@ app.post('/api/blacklist', async (req, res) => {
     if (!emp_name) return res.status(400).json({ error: 'กรุณาระบุชื่อพนักงาน' });
 
     try {
-        // ใช้ ON CONFLICT เพื่อว่าถ้าใส่ชื่อซ้ำ จะเป็นการอัปเดตเหตุผลแทน
-        await pool.query(
+        //  แก้ไขจาก pool.query เป็น db.query
+        await db.query(
             'INSERT INTO blacklist (emp_name, reason) VALUES ($1, $2) ON CONFLICT (emp_name) DO UPDATE SET reason = $2',
             [emp_name.trim(), reason || '']
         );
         res.json({ success: true, message: 'บันทึกรายชื่อแบล็กลิสต์เรียบร้อยแล้ว' });
     } catch (err) {
-        console.error(err);
+        console.error('Error inserting blacklist:', err);
         res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกแบล็กลิสต์' });
     }
 });
@@ -196,10 +197,11 @@ app.post('/api/blacklist', async (req, res) => {
 app.delete('/api/blacklist/:emp_name', async (req, res) => {
     const { emp_name } = req.params;
     try {
-        await pool.query('DELETE FROM blacklist WHERE emp_name = $1', [decodeURIComponent(emp_name).trim()]);
+        //  แก้ไขจาก pool.query เป็น db.query
+        await db.query('DELETE FROM blacklist WHERE emp_name = $1', [decodeURIComponent(emp_name).trim()]);
         res.json({ success: true, message: 'ลบรายชื่อออกจากแบล็กลิสต์แล้ว' });
     } catch (err) {
-        console.error(err);
+        console.error('Error deleting blacklist:', err);
         res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบแบล็กลิสต์' });
     }
 });
