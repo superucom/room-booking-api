@@ -221,6 +221,76 @@ app.delete('/api/blacklist/:emp_name', async (req, res) => {
     }
 });
 
+// ==========================================
+// ⏰ API สำหรับระบบตั้งค่าช่วงเวลาเปิดจอง (time_slots)
+// ==========================================
+
+// 1. GET: ดึงช่วงเวลาทั้งหมด (เรียงลำดับตาม display_order)
+app.get('/api/time-slots', async (req, res) => {
+    try {
+        const result = await db.query('SELECT * FROM time_slots ORDER BY display_order ASC, slot_id ASC');
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Error fetching time slots:', err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลช่วงเวลา' });
+    }
+});
+
+// 2. POST: เพิ่มช่วงเวลาใหม่
+app.post('/api/time-slots', async (req, res) => {
+    const { start_time, end_time, is_active } = req.body;
+    if (!start_time || !end_time) {
+        return res.status(400).json({ error: 'กรุณาระบุเวลาเริ่มต้นและสิ้นสุด' });
+    }
+    try {
+        // หา display_order สูงสุดแล้วบวก 1
+        const maxOrder = await db.query('SELECT COALESCE(MAX(display_order), 0) AS max_order FROM time_slots');
+        const newOrder = maxOrder.rows[0].max_order + 1;
+        const result = await db.query(
+            'INSERT INTO time_slots (start_time, end_time, is_active, display_order) VALUES ($1, $2, $3, $4) RETURNING *',
+            [start_time, end_time, is_active !== false, newOrder]
+        );
+        res.status(201).json({ success: true, data: result.rows[0] });
+    } catch (err) {
+        console.error('Error inserting time slot:', err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการเพิ่มช่วงเวลา' });
+    }
+});
+
+// 3. PUT: อัปเดตสถานะ is_active ของช่วงเวลา
+app.put('/api/time-slots/:id', async (req, res) => {
+    const { id } = req.params;
+    const { is_active } = req.body;
+    try {
+        const result = await db.query(
+            'UPDATE time_slots SET is_active = $1 WHERE slot_id = $2 RETURNING *',
+            [is_active, id]
+        );
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'ไม่พบช่วงเวลาที่ต้องการแก้ไข' });
+        }
+        res.json({ success: true, data: result.rows[0] });
+    } catch (err) {
+        console.error('Error updating time slot:', err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตช่วงเวลา' });
+    }
+});
+
+// 4. DELETE: ลบช่วงเวลา
+app.delete('/api/time-slots/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await db.query('DELETE FROM time_slots WHERE slot_id = $1 RETURNING *', [id]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'ไม่พบช่วงเวลาที่ต้องการลบ' });
+        }
+        res.json({ success: true, message: 'ลบช่วงเวลาเรียบร้อยแล้ว' });
+    } catch (err) {
+        console.error('Error deleting time slot:', err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบช่วงเวลา' });
+    }
+});
+
 // เปิดพอร์ตทำงานที่เลข 3000
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
